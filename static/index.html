@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8fc">
+  <title>ATM Simulator | Northstar Bank</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main id="login-screen" class="login-screen">
+    <section class="login-art">
+      <a class="brand brand-light" href="#"><span class="brand-mark">N</span><span>northstar<span class="brand-bank"> bank</span></span></a>
+      <div class="login-art-copy">
+        <span class="eyebrow light-eyebrow">YOUR MONEY, IN MOTION</span>
+        <h1>Banking that<br>moves with you.</h1>
+        <p>A secure, simple ATM experience. Your everyday banking, all in one place.</p>
+      </div>
+      <div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div>
+      <div class="art-note"><span class="note-chip">✳</span><div><b>Always within reach</b><small>Quick, secure, convenient</small></div><span class="note-arrow">↗</span></div>
+      <div class="art-footer">SECURE BANKING · EST. 1987</div>
+    </section>
+    <section class="login-panel">
+      <a class="mobile-brand brand" href="#"><span class="brand-mark">N</span><span>northstar<span class="brand-bank"> bank</span></span></a>
+      <div class="login-card">
+        <span class="eyebrow">WELCOME BACK</span>
+        <h2>Sign in to your account</h2>
+        <p class="muted">Enter your account details to continue.</p>
+        <form id="login-form">
+          <label for="account-input">Account number</label>
+          <div class="input-wrap"><span class="input-icon">▤</span><input id="account-input" name="account_no" inputmode="numeric" autocomplete="username" placeholder="e.g. 1001" required></div>
+          <label for="pin-input">4-digit PIN</label>
+          <div class="input-wrap"><span class="input-icon">⌑</span><input id="pin-input" name="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" placeholder="Enter your PIN" required><button id="toggle-pin" class="text-button" type="button">Show</button></div>
+          <p id="login-error" class="form-error" role="alert"></p>
+          <button id="login-button" class="button button-primary login-submit" type="submit">Sign in <span>→</span></button>
+        </form>
+        <div class="demo-box"><span class="demo-icon">i</span><div><b>Just exploring?</b><p>Demo account <strong>1001</strong> · PIN <strong>1234</strong></p></div></div>
+        <div class="login-security"><span>◉</span> Your information stays on this computer</div>
+      </div>
+      <footer class="login-copyright">© 2026 Northstar Bank · ATM Simulator</footer>
+    </section>
+  </main>
+
+  <div id="app-screen" class="app-screen hidden">
+    <aside class="sidebar">
+      <a class="brand sidebar-brand" href="#" data-view-link="overview"><span class="brand-mark">N</span><span>northstar<span class="brand-bank"> bank</span></span></a>
+      <div class="side-caption">MENU</div>
+      <nav class="side-nav" aria-label="Main navigation">
+        <button class="nav-link active" data-view="overview"><span class="nav-icon">◫</span>Overview</button>
+        <button class="nav-link" data-view="withdraw"><span class="nav-icon">↗</span>Withdraw cash</button>
+        <button class="nav-link" data-view="deposit"><span class="nav-icon">↙</span>Deposit cash</button>
+        <button class="nav-link" data-view="transfer"><span class="nav-icon">⇄</span>Transfer</button>
+        <button class="nav-link" data-view="qr-cash"><span class="nav-icon">▦</span>QR to cash</button>
+        <button class="nav-link" data-view="transactions"><span class="nav-icon">▤</span>Transactions</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="help-card"><span class="help-spark">✳</span><b>Need a hand?</b><p>This simulator runs locally on your computer.</p></div>
+        <button id="logout-button" class="logout-button"><span>↪</span> Sign out</button>
+        <div class="sidebar-version"><span class="status-dot"></span> LOCAL ATM · SECURE SESSION</div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>Personal banking</span><b>/</b><strong id="breadcrumb-current">Overview</strong></div>
+        <div class="topbar-right"><span id="today-label" class="today-label"></span><div class="avatar" id="avatar">M</div><div class="topbar-user"><b id="topbar-name">Customer</b><small>Personal account</small></div></div>
+      </header>
+
+      <section id="view-overview" class="page-view">
+        <div class="page-heading"><div><span class="eyebrow">YOUR ACCOUNT</span><h1>Good day, <span id="greeting-name">there</span> <span class="wave">✳</span></h1><p class="muted">Here’s what’s happening with your money today.</p></div><div class="account-pill"><span class="account-pill-icon">▤</span><div><small>ACCOUNT NUMBER</small><b id="account-number">—</b></div></div></div>
+        <div class="overview-grid">
+          <article class="balance-card"><div class="balance-card-top"><span>AVAILABLE BALANCE</span><span class="balance-card-status"><i></i> Active account</span></div><div class="balance-amount" id="balance-amount">₹0.00</div><div class="balance-card-bottom"><span>Account ending in <b id="account-last4">—</b></span><button class="balance-link" data-view-link="transactions">View activity <span>↗</span></button></div><div class="balance-decoration"></div></article>
+          <article class="stat-card"><div class="stat-icon stat-violet">↗</div><span class="stat-label">WITHDRAWN TODAY</span><strong id="spent-today">₹0</strong><small>Cash withdrawals</small><div class="stat-line"><span></span></div></article>
+          <article class="stat-card"><div class="stat-icon stat-mint">▤</div><span class="stat-label">TOTAL TRANSACTIONS</span><strong id="transaction-count">0</strong><small>All-time activity</small><div class="stat-line mint-line"><span></span></div></article>
+        </div>
+        <section class="section-block"><div class="section-title"><div><span class="eyebrow">GET THINGS DONE</span><h2>Quick actions</h2></div><span class="section-hint">Choose a service to get started</span></div><div class="action-grid">
+          <button class="action-card" data-view-link="withdraw"><span class="action-icon action-purple">↗</span><b>Withdraw cash</b><small>Take out cash from your account</small><span class="action-arrow">↗</span></button>
+          <button class="action-card" data-view-link="deposit"><span class="action-icon action-green">↙</span><b>Deposit cash</b><small>Add funds to your account</small><span class="action-arrow">↗</span></button>
+          <button class="action-card" data-view-link="transfer"><span class="action-icon action-blue">⇄</span><b>Transfer money</b><small>Send money to another account</small><span class="action-arrow">↗</span></button>
+          <button class="action-card" data-view-link="qr-cash"><span class="action-icon action-orange">▦</span><b>QR to cash</b><small>Simulate a QR cash withdrawal</small><span class="action-arrow">↗</span></button>
+        </div></section>
+        <div class="bottom-grid">
+          <section class="surface-card recent-card"><div class="section-title compact-title"><div><span class="eyebrow">YOUR MONEY</span><h2>Recent transactions</h2></div><button class="inline-link" data-view-link="transactions">See all <span>→</span></button></div><div id="recent-transactions" class="transaction-list"></div></section>
+          <section class="surface-card cash-card"><div class="section-title compact-title"><div><span class="eyebrow">ATM STATUS</span><h2>Cash availability</h2></div><span class="live-label"><i></i> LIVE</span></div><p class="muted cash-intro">Available notes at this ATM</p><div id="cash-inventory" class="cash-inventory"></div><div class="cash-total"><span>Total cash in ATM</span><b id="atm-total-cash">₹0</b></div></section>
+        </div>
+      </section>
+
+      <section id="view-withdraw" class="page-view hidden"><div class="page-heading"><div><span class="eyebrow">CASH SERVICES</span><h1>Withdraw cash</h1><p class="muted">Choose an amount and collect your cash from the ATM.</p></div></div>
+        <div class="service-layout"><section class="surface-card service-card"><div class="form-heading"><span class="service-large-icon action-purple">↗</span><div><h2>Cash withdrawal</h2><p class="muted">Available balance: <b class="inline-balance">₹0</b></p></div></div><form data-action="withdraw" class="transaction-form"><label>Choose an amount</label><div class="amount-options"><button type="button" data-amount="500">₹500</button><button type="button" data-amount="1000">₹1,000</button><button type="button" data-amount="2000">₹2,000</button><button type="button" data-amount="5000">₹5,000</button></div><label for="withdraw-amount">Or enter amount</label><div class="money-input"><span>₹</span><input id="withdraw-amount" name="amount" type="number" min="50" step="50" placeholder="0.00" required></div><small class="field-note">Enter a multiple of ₹50. Subject to available ATM notes.</small><button class="button button-primary form-submit">Continue <span>→</span></button></form></section>
+          <aside class="service-aside"><div class="info-card"><span class="info-icon">✳</span><h3>Good to know</h3><ul><li>ATM dispenses ₹500, ₹200, ₹100 and ₹50 notes.</li><li>Cash availability depends on the notes currently in the machine.</li><li>Withdrawals above ₹10,000 need an extra confirmation.</li></ul></div><div class="mini-balance"><small>AVAILABLE BALANCE</small><b class="inline-balance">₹0</b><span class="status-dot"></span></div></aside></div>
+      </section>
+
+      <section id="view-deposit" class="page-view hidden"><div class="page-heading"><div><span class="eyebrow">CASH SERVICES</span><h1>Deposit cash</h1><p class="muted">Add money to your account in just a few steps.</p></div></div>
+        <div class="service-layout"><section class="surface-card service-card"><div class="form-heading"><span class="service-large-icon action-green">↙</span><div><h2>Cash deposit</h2><p class="muted">Funds are added to your available balance.</p></div></div><form data-action="deposit" class="transaction-form"><label>Choose an amount</label><div class="amount-options"><button type="button" data-amount="500">₹500</button><button type="button" data-amount="1000">₹1,000</button><button type="button" data-amount="2000">₹2,000</button><button type="button" data-amount="5000">₹5,000</button></div><label for="deposit-amount">Or enter amount</label><div class="money-input"><span>₹</span><input id="deposit-amount" name="amount" type="number" min="1" step="1" placeholder="0.00" required></div><small class="field-note">Enter a whole amount in rupees.</small><button class="button button-primary form-submit">Deposit money <span>→</span></button></form></section>
+          <aside class="service-aside"><div class="info-card"><span class="info-icon">✳</span><h3>Deposit securely</h3><ul><li>Deposits are recorded instantly in this simulator.</li><li>Check your updated balance and transaction history after depositing.</li><li>A transaction reference is generated for each deposit.</li></ul></div><div class="mini-balance"><small>AVAILABLE BALANCE</small><b class="inline-balance">₹0</b><span class="status-dot"></span></div></aside></div>
+      </section>
+
+      <section id="view-transfer" class="page-view hidden"><div class="page-heading"><div><span class="eyebrow">MOVE MONEY</span><h1>Transfer money</h1><p class="muted">Send funds to another Northstar account.</p></div></div>
+        <div class="service-layout"><section class="surface-card service-card"><div class="form-heading"><span class="service-large-icon action-blue">⇄</span><div><h2>Account transfer</h2><p class="muted">Available balance: <b class="inline-balance">₹0</b></p></div></div><form data-action="transfer" class="transaction-form"><label for="recipient-account">Recipient account number</label><div class="input-wrap"><span class="input-icon">▤</span><input id="recipient-account" name="receiver_account" inputmode="numeric" placeholder="Enter account number" required></div><label>Choose an amount</label><div class="amount-options"><button type="button" data-amount="500">₹500</button><button type="button" data-amount="1000">₹1,000</button><button type="button" data-amount="2000">₹2,000</button><button type="button" data-amount="5000">₹5,000</button></div><label for="transfer-amount">Transfer amount</label><div class="money-input"><span>₹</span><input id="transfer-amount" name="amount" type="number" min="1" step="1" placeholder="0.00" required></div><button class="button button-primary form-submit">Review transfer <span>→</span></button></form></section>
+          <aside class="service-aside"><div class="info-card"><span class="info-icon">↔</span><h3>Before you transfer</h3><ul><li>Double-check the recipient account number.</li><li>Transfers between the demo accounts are instant.</li><li>Transfers cannot be sent to the same account.</li></ul></div><div class="mini-balance"><small>AVAILABLE BALANCE</small><b class="inline-balance">₹0</b><span class="status-dot"></span></div></aside></div>
+      </section>
+
+      <section id="view-qr-cash" class="page-view hidden"><div class="page-heading"><div><span class="eyebrow">CASH SERVICES</span><h1>QR to cash</h1><p class="muted">Simulate a verified QR payment and withdraw the cash.</p></div></div>
+        <div class="service-layout"><section class="surface-card service-card"><div class="form-heading"><span class="service-large-icon action-orange">▦</span><div><h2>QR cash withdrawal</h2><p class="muted">Available balance: <b class="inline-balance">₹0</b></p></div></div><form data-action="qr-cash" class="transaction-form"><div class="qr-preview"><div class="qr-pattern">▦</div><div><b>Payment verification</b><small>A simulated QR reference will be generated when you continue.</small></div><span class="verified-badge">VERIFIED</span></div><label>Choose an amount</label><div class="amount-options"><button type="button" data-amount="500">₹500</button><button type="button" data-amount="1000">₹1,000</button><button type="button" data-amount="2000">₹2,000</button><button type="button" data-amount="5000">₹5,000</button></div><label for="qr-amount">Or enter amount</label><div class="money-input"><span>₹</span><input id="qr-amount" name="amount" type="number" min="50" step="50" placeholder="0.00" required></div><button class="button button-primary form-submit">Verify & withdraw <span>→</span></button></form></section>
+          <aside class="service-aside"><div class="info-card"><span class="info-icon">▦</span><h3>How it works</h3><ul><li>Enter the amount you want to withdraw.</li><li>This demo simulates QR payment verification.</li><li>Cash is dispensed from the available ATM inventory.</li></ul></div><div class="mini-balance"><small>AVAILABLE BALANCE</small><b class="inline-balance">₹0</b><span class="status-dot"></span></div></aside></div>
+      </section>
+
+      <section id="view-transactions" class="page-view hidden"><div class="page-heading"><div><span class="eyebrow">ACCOUNT ACTIVITY</span><h1>Transactions</h1><p class="muted">A clear view of your latest account activity.</p></div><button id="refresh-transactions" class="button button-secondary">↻ Refresh</button></div>
+        <section class="surface-card history-card"><div class="history-summary"><div><span class="eyebrow">RECENT ACTIVITY</span><h2>Transaction history</h2></div><span id="history-count" class="history-count">Latest activity</span></div><div class="table-wrap"><table><thead><tr><th>TRANSACTION</th><th>REFERENCE</th><th>DATE & TIME</th><th>AMOUNT</th><th>BALANCE AFTER</th></tr></thead><tbody id="transactions-table"></tbody></table></div></section>
+      </section>
+      <footer class="page-footer"><span>Northstar Bank ATM Simulator</span><span>Running locally on your device <i class="status-dot"></i></span></footer>
+    </main>
+  </div>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <div id="receipt-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
+    <div class="receipt-card"><button class="modal-close" id="close-receipt" aria-label="Close receipt">×</button><div class="receipt-success">✓</div><span class="eyebrow">TRANSACTION COMPLETE</span><h2 id="receipt-title">Success!</h2><p id="receipt-description" class="muted"></p><div id="receipt-details" class="receipt-details"></div><button id="print-receipt" class="button button-secondary print-button">Print receipt</button><button id="done-receipt" class="button button-primary form-submit">Done</button></div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

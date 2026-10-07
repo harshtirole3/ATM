@@ -1,0 +1,629 @@
+import json
+import secrets
+import sqlite3
+import threading
+import time
+from datetime import datetime, timedelta
+from http.cookies import SimpleCookie
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+
+ROOT = Path(__file__).resolve().parent
+STATIC_ROOT = ROOT / "static"
+DATABASE = ROOT / "atm.db"
+HOST = "127.0.0.1"
+PORT = 8000
+SESSION_COOKIE = "atm_session"
+SESSION_TTL = 12 * 60 * 60
+SESSIONS = {}
+SESSIONS_LOCK = threading.Lock()
+
+
+class ApiError(Exception):
+    def __init__(self, message, status=400, code="BAD_REQUEST"):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+        self.code = code
+
+
+def connect_database():
+    connection = sqlite3.connect(DATABASE, timeout=10)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def initialize_database():
+    with connect_database() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                account_no INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                pin TEXT NOT NULL,
+                balance REAL NOT NULL,
+                daily_withdrawal REAL DEFAULT 0,
+                account_locked INTEGER DEFAULT 0,
+                pin_attempts INTEGER DEFAULT 0
+            )
+            """
+        )
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(users)")
+        }
+        if "pin_attempts" not in columns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN pin_attempts INTEGER DEFAULT 0"
+            )
+        if "account_locked" not in columns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN account_locked INTEGER DEFAULT 0"
+            )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_no INTEGER,
+                transaction_type TEXT,
+                amount REAL,
+                balance_after REAL,
+                date TEXT,
+                time TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS atm_cash (
+                denomination INTEGER PRIMARY KEY,
+                note_count INTEGER
+            )
+            """
+        )
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO users (account_no, name, pin, balance)
+            VALUES (?, ?, ?, ?)
+            """,
+            [(1001, "Muskan", "1234", 50000), (1002, "Rahul", "5678", 25000)],
+        )
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO atm_cash (denomination, note_count)
+            VALUES (?, ?)
+            """,
+            [(500, 100), (200, 100), (100, 100), (50, 100)],
+        )
+
+
+def parse_amount(payload):
+    value = payload.get("amount")
+    if isinstance(value, bool):
+        raise ApiError("Enter a valid amount.")
+    try:
+        amount = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ApiError("Amount must be a whole number.")
+    if amount <= 0:
+        raise ApiError("Amount must be greater than zero.")
+    return amount
+
+
+def transaction_time():
+    now = datetime.now()
+    return now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+
+
+def record_transaction(connection, account_no, kind, amount, balance):
+    date, clock = transaction_time()
+    cursor = connection.execute(
+        """
+        INSERT INTO transactions
+            (account_no, transaction_type, amount, balance_after, date, time)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (account_no, kind, amount, balance, date, clock),
+    )
+    return cursor.lastrowid
+
+
+def dispense_notes(connection, amount):
+    rows = connection.execute(
+        "SELECT denomination, note_count FROM atm_cash ORDER BY denomination DESC"
+    ).fetchall()
+    remaining = amount
+    dispensed = {}
+    for row in rows:
+        denomination = row["denomination"]
+        count = min(remaining // denomination, row["note_count"])
+        if count:
+            dispensed[denomination] = int(count)
+            remaining -= denomination * count
+    if remaining:
+        raise ApiError(
+            "ATM mein is amount ke liye exact cash available nahi hai.",
+            409,
+            "CASH_UNAVAILABLE",
+        )
+    for denomination, count in dispensed.items():
+        result = connection.execute(
+            """
+            UPDATE atm_cash SET note_count = note_count - ?
+            WHERE denomination = ? AND note_count >= ?
+            """,
+            (count, denomination, count),
+        )
+        if result.rowcount != 1:
+            raise ApiError("ATM cash inventory changed. Please try again.", 409)
+    return dispensed
+
+
+def check_withdrawal_risk(connection, account_no, amount, confirmed):
+    if amount > 10000 and not confirmed:
+        raise ApiError(
+            "This withdrawal is above ₹10,000. Confirm the high-risk transaction to continue.",
+            409,
+            "HIGH_RISK_CONFIRMATION",
+        )
+    now = datetime.now()
+    five_minutes_ago = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+    recent = connection.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM transactions
+        WHERE account_no = ? AND transaction_type = 'WITHDRAW'
+            AND date || ' ' || time >= ?
+        """,
+        (account_no, five_minutes_ago),
+    ).fetchone()["count"]
+    if recent >= 3:
+        raise ApiError(
+            "Security check: too many withdrawals in the last five minutes.",
+            409,
+            "WITHDRAWAL_LIMIT",
+        )
+    thirty_minutes_ago = (now - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    recent_amounts = connection.execute(
+        """
+        SELECT amount
+        FROM transactions
+        WHERE account_no = ? AND transaction_type = 'WITHDRAW'
+            AND date || ' ' || time >= ?
+        """,
+        (account_no, thirty_minutes_ago),
+    ).fetchall()
+    if sum(row["amount"] == amount for row in recent_amounts) >= 5:
+        raise ApiError(
+            "Security check: repeated withdrawals of the same amount are blocked.",
+            409,
+            "SUSPICIOUS_PATTERN",
+        )
+
+
+def current_user(handler):
+    cookie = SimpleCookie()
+    cookie.load(handler.headers.get("Cookie", ""))
+    morsel = cookie.get(SESSION_COOKIE)
+    if morsel is None:
+        raise ApiError("Please sign in to continue.", 401, "UNAUTHORIZED")
+    token = morsel.value
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(token)
+        if not session:
+            raise ApiError(
+                "Your session has expired. Please sign in again.",
+                401,
+                "UNAUTHORIZED",
+            )
+        account_no, last_used = session
+        if time.time() - last_used > SESSION_TTL:
+            del SESSIONS[token]
+            raise ApiError(
+                "Your session has expired. Please sign in again.",
+                401,
+                "UNAUTHORIZED",
+            )
+        SESSIONS[token] = (account_no, time.time())
+    return account_no, token
+
+
+class ATMRequestHandler(BaseHTTPRequestHandler):
+    server_version = "LocalATM/1.0"
+
+    def log_message(self, format_string, *args):
+        print(f"[ATM] {self.address_string()} - {format_string % args}")
+
+    def send_json(self, data, status=200, headers=None):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        if headers:
+            for name, value in headers.items():
+                self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_json(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise ApiError("Invalid request.")
+        if length < 1 or length > 20000:
+            raise ApiError("Request body is missing or too large.")
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ApiError("Request must contain valid JSON.")
+        if not isinstance(payload, dict):
+            raise ApiError("Request body must be a JSON object.")
+        return payload
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        try:
+            if path == "/":
+                return self.send_file("index.html", "text/html; charset=utf-8")
+            if path == "/styles.css":
+                return self.send_file("styles.css", "text/css; charset=utf-8")
+            if path == "/app.js":
+                return self.send_file("app.js", "text/javascript; charset=utf-8")
+            if path == "/api/dashboard":
+                account_no, _ = current_user(self)
+                return self.send_json(self.dashboard(account_no))
+            if path == "/api/session":
+                try:
+                    account_no, _ = current_user(self)
+                except ApiError as error:
+                    if error.status != 401:
+                        raise
+                    return self.send_json({"authenticated": False})
+                return self.send_json(
+                    {
+                        "authenticated": True,
+                        "dashboard": self.dashboard(account_no),
+                    }
+                )
+            if path == "/api/transactions":
+                account_no, _ = current_user(self)
+                return self.send_json({"transactions": self.transactions(account_no)})
+            return self.send_json({"error": "Page not found."}, 404)
+        except ApiError as error:
+            return self.send_json(
+                {"error": error.message, "code": error.code}, error.status
+            )
+        except sqlite3.Error as error:
+            print(f"[ATM] Database error: {error}")
+            return self.send_json(
+                {"error": "Database error. Please try again."}, 500
+            )
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        try:
+            payload = self.read_json()
+            if path == "/api/login":
+                return self.login(payload)
+            if path == "/api/logout":
+                _, token = current_user(self)
+                with SESSIONS_LOCK:
+                    SESSIONS.pop(token, None)
+                return self.send_json(
+                    {"ok": True},
+                    headers={
+                        "Set-Cookie": (
+                            f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
+                            "Path=/; Max-Age=0"
+                        )
+                    },
+                )
+            account_no, _ = current_user(self)
+            if path == "/api/transactions/deposit":
+                result = self.deposit(account_no, parse_amount(payload))
+                return self.send_json(result, 201)
+            if path == "/api/transactions/withdraw":
+                result = self.withdraw(
+                    account_no,
+                    parse_amount(payload),
+                    payload.get("confirmed_high_risk") is True,
+                    "WITHDRAW",
+                )
+                return self.send_json(result, 201)
+            if path == "/api/transactions/qr-cash":
+                result = self.withdraw(
+                    account_no,
+                    parse_amount(payload),
+                    payload.get("confirmed_high_risk") is True,
+                    "QR TO CASH",
+                )
+                result["qr_reference"] = f"QR{secrets.randbelow(900000) + 100000}"
+                return self.send_json(result, 201)
+            if path == "/api/transactions/transfer":
+                result = self.transfer(account_no, payload)
+                return self.send_json(result, 201)
+            return self.send_json({"error": "Page not found."}, 404)
+        except ApiError as error:
+            return self.send_json(
+                {"error": error.message, "code": error.code}, error.status
+            )
+        except sqlite3.Error as error:
+            print(f"[ATM] Database error: {error}")
+            return self.send_json(
+                {"error": "Database error. Please try again."}, 500
+            )
+
+    def send_file(self, filename, content_type):
+        path = STATIC_ROOT / filename
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return self.send_json({"error": "Web page asset not found."}, 404)
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(content)
+
+    def login(self, payload):
+        account_text = str(payload.get("account_no", "")).strip()
+        pin = str(payload.get("pin", "")).strip()
+        if not account_text.isdigit() or not pin:
+            raise ApiError("Enter your account number and PIN.")
+        account_no = int(account_text)
+        error = None
+        user_name = None
+        with connect_database() as connection:
+            user = connection.execute(
+                """
+                SELECT account_no, name, pin, account_locked, pin_attempts
+                FROM users WHERE account_no = ?
+                """,
+                (account_no,),
+            ).fetchone()
+            if not user:
+                error = ApiError(
+                    "Account number or PIN is incorrect.", 401, "LOGIN_FAILED"
+                )
+            elif user["account_locked"]:
+                error = ApiError(
+                    "This account is locked. Please contact an administrator.",
+                    403,
+                    "ACCOUNT_LOCKED",
+                )
+            elif not secrets.compare_digest(pin, str(user["pin"])):
+                attempts = (user["pin_attempts"] or 0) + 1
+                locked = attempts >= 3
+                connection.execute(
+                    """
+                    UPDATE users SET pin_attempts = ?, account_locked = ?
+                    WHERE account_no = ?
+                    """,
+                    (min(attempts, 3), int(locked), account_no),
+                )
+                if locked:
+                    error = ApiError(
+                        "Three incorrect PIN attempts. This account is now locked.",
+                        403,
+                        "ACCOUNT_LOCKED",
+                    )
+                else:
+                    error = ApiError(
+                        f"Incorrect PIN. {3 - attempts} attempt(s) remaining.",
+                        401,
+                        "LOGIN_FAILED",
+                    )
+            else:
+                connection.execute(
+                    "UPDATE users SET pin_attempts = 0 WHERE account_no = ?",
+                    (account_no,),
+                )
+                user_name = user["name"]
+        if error:
+            raise error
+        token = secrets.token_urlsafe(32)
+        with SESSIONS_LOCK:
+            SESSIONS[token] = (account_no, time.time())
+        return self.send_json(
+            {"ok": True, "name": user_name},
+            headers={
+                "Set-Cookie": (
+                    f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; "
+                    f"Path=/; Max-Age={SESSION_TTL}"
+                )
+            },
+        )
+
+    def dashboard(self, account_no):
+        with connect_database() as connection:
+            user = connection.execute(
+                "SELECT account_no, name, balance FROM users WHERE account_no = ?",
+                (account_no,),
+            ).fetchone()
+            if not user:
+                raise ApiError("Account not found.", 404, "ACCOUNT_NOT_FOUND")
+            cash_rows = connection.execute(
+                "SELECT denomination, note_count FROM atm_cash ORDER BY denomination DESC"
+            ).fetchall()
+            today = datetime.now().strftime("%Y-%m-%d")
+            spent_today = connection.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) AS total
+                FROM transactions
+                WHERE account_no = ? AND transaction_type = 'WITHDRAW' AND date = ?
+                """,
+                (account_no, today),
+            ).fetchone()["total"]
+            total_transactions = connection.execute(
+                "SELECT COUNT(*) AS count FROM transactions WHERE account_no = ?",
+                (account_no,),
+            ).fetchone()["count"]
+            recent = self.transactions(account_no, connection=connection, limit=6)
+        inventory = [
+            {
+                "denomination": row["denomination"],
+                "notes": row["note_count"],
+                "value": row["denomination"] * row["note_count"],
+            }
+            for row in cash_rows
+        ]
+        return {
+            "account": {
+                "account_no": user["account_no"],
+                "name": user["name"],
+                "balance": user["balance"],
+            },
+            "spent_today": spent_today,
+            "total_transactions": total_transactions,
+            "inventory": inventory,
+            "recent_transactions": recent,
+        }
+
+    def transactions(self, account_no, connection=None, limit=50):
+        owns_connection = connection is None
+        if owns_connection:
+            connection = connect_database()
+        try:
+            rows = connection.execute(
+                """
+                SELECT transaction_id, transaction_type, amount, balance_after, date, time
+                FROM transactions
+                WHERE account_no = ?
+                ORDER BY transaction_id DESC
+                LIMIT ?
+                """,
+                (account_no, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            if owns_connection:
+                connection.close()
+
+    def deposit(self, account_no, amount):
+        with connect_database() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            user = connection.execute(
+                "SELECT balance FROM users WHERE account_no = ?", (account_no,)
+            ).fetchone()
+            if not user:
+                raise ApiError("Account not found.", 404, "ACCOUNT_NOT_FOUND")
+            balance = user["balance"] + amount
+            connection.execute(
+                "UPDATE users SET balance = ? WHERE account_no = ?",
+                (balance, account_no),
+            )
+            transaction_id = record_transaction(
+                connection, account_no, "DEPOSIT", amount, balance
+            )
+        return {
+            "ok": True,
+            "transaction_id": transaction_id,
+            "balance": balance,
+            "amount": amount,
+            "type": "DEPOSIT",
+        }
+
+    def withdraw(self, account_no, amount, confirmed, transaction_type):
+        with connect_database() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            user = connection.execute(
+                "SELECT balance FROM users WHERE account_no = ?", (account_no,)
+            ).fetchone()
+            if not user:
+                raise ApiError("Account not found.", 404, "ACCOUNT_NOT_FOUND")
+            check_withdrawal_risk(connection, account_no, amount, confirmed)
+            if amount > user["balance"]:
+                raise ApiError(
+                    "There is not enough balance for this withdrawal.",
+                    409,
+                    "INSUFFICIENT_BALANCE",
+                )
+            denominations = dispense_notes(connection, amount)
+            balance = user["balance"] - amount
+            connection.execute(
+                "UPDATE users SET balance = ? WHERE account_no = ?",
+                (balance, account_no),
+            )
+            transaction_id = record_transaction(
+                connection, account_no, transaction_type, amount, balance
+            )
+        return {
+            "ok": True,
+            "transaction_id": transaction_id,
+            "balance": balance,
+            "amount": amount,
+            "type": transaction_type,
+            "denominations": denominations,
+        }
+
+    def transfer(self, sender_account, payload):
+        receiver_text = str(payload.get("receiver_account", "")).strip()
+        if not receiver_text.isdigit():
+            raise ApiError("Enter a valid recipient account number.")
+        receiver_account = int(receiver_text)
+        if receiver_account == sender_account:
+            raise ApiError("You cannot transfer money to the same account.")
+        amount = parse_amount(payload)
+        with connect_database() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            sender = connection.execute(
+                "SELECT balance FROM users WHERE account_no = ?", (sender_account,)
+            ).fetchone()
+            receiver = connection.execute(
+                "SELECT balance, name FROM users WHERE account_no = ?",
+                (receiver_account,),
+            ).fetchone()
+            if not receiver:
+                raise ApiError(
+                    "Recipient account was not found.", 404, "RECIPIENT_NOT_FOUND"
+                )
+            if amount > sender["balance"]:
+                raise ApiError(
+                    "There is not enough balance for this transfer.",
+                    409,
+                    "INSUFFICIENT_BALANCE",
+                )
+            sender_balance = sender["balance"] - amount
+            receiver_balance = receiver["balance"] + amount
+            connection.execute(
+                "UPDATE users SET balance = ? WHERE account_no = ?",
+                (sender_balance, sender_account),
+            )
+            connection.execute(
+                "UPDATE users SET balance = ? WHERE account_no = ?",
+                (receiver_balance, receiver_account),
+            )
+            transaction_id = record_transaction(
+                connection, sender_account, "TRANSFER OUT", amount, sender_balance
+            )
+            record_transaction(
+                connection, receiver_account, "TRANSFER IN", amount, receiver_balance
+            )
+        return {
+            "ok": True,
+            "transaction_id": transaction_id,
+            "balance": sender_balance,
+            "amount": amount,
+            "type": "TRANSFER OUT",
+            "recipient": receiver["name"],
+        }
+
+
+def main():
+    initialize_database()
+    server = ThreadingHTTPServer((HOST, PORT), ATMRequestHandler)
+    print(f"ATM web app running at http://{HOST}:{PORT}")
+    print("Demo accounts: 1001 / PIN 1234 and 1002 / PIN 5678")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nATM web app stopped.")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
