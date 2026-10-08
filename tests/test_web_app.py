@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import app as atm
 import web_app
@@ -10,6 +11,7 @@ import web_app
 class WebAppTests(unittest.TestCase):
     def setUp(self):
         self.database_url = os.environ.pop("DATABASE_URL", None)
+        self.postgres_url = os.environ.pop("POSTGRES_URL", None)
         self.vercel = os.environ.pop("VERCEL", None)
         self.temp_dir = tempfile.TemporaryDirectory()
         atm.DATABASE = Path(self.temp_dir.name) / "test-atm.db"
@@ -19,6 +21,8 @@ class WebAppTests(unittest.TestCase):
     def tearDown(self):
         if self.database_url is not None:
             os.environ["DATABASE_URL"] = self.database_url
+        if self.postgres_url is not None:
+            os.environ["POSTGRES_URL"] = self.postgres_url
         if self.vercel is not None:
             os.environ["VERCEL"] = self.vercel
         self.temp_dir.cleanup()
@@ -32,6 +36,19 @@ class WebAppTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"ATM Simulator", response.data)
+
+    def test_postgres_provider_url_is_supported(self):
+        os.environ["POSTGRES_URL"] = "postgresql://example.invalid/test"
+        with patch.object(atm.psycopg, "connect") as connect:
+            connection = atm.connect_database()
+
+        connect.assert_called_once()
+        self.assertEqual(
+            connect.call_args.args[0], "postgresql://example.invalid/test"
+        )
+        self.assertTrue(connection.postgres)
+        connection.close()
+        connection.connection.close.assert_called_once()
 
     def test_login_deposit_and_database_backed_logout(self):
         login = self.sign_in()
