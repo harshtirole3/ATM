@@ -10,8 +10,29 @@ import web_app
 
 class WebAppTests(unittest.TestCase):
     def setUp(self):
-        self.database_url = os.environ.pop("DATABASE_URL", None)
-        self.postgres_url = os.environ.pop("POSTGRES_URL", None)
+        database_variables = (
+            "DATABASE_URL",
+            "POSTGRES_URL",
+            "POSTGRES_PRISMA_URL",
+            "POSTGRES_URL_NON_POOLING",
+            "DATABASE_URL_UNPOOLED",
+            "NEON_DATABASE_URL",
+            "POSTGRES_HOST",
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+            "POSTGRES_DATABASE",
+            "POSTGRES_DB",
+            "PGHOST",
+            "PGUSER",
+            "PGPASSWORD",
+            "PGDATABASE",
+            "PGSSLMODE",
+        )
+        self.database_environment = {
+            variable: os.environ.pop(variable)
+            for variable in database_variables
+            if variable in os.environ
+        }
         self.vercel = os.environ.pop("VERCEL", None)
         self.temp_dir = tempfile.TemporaryDirectory()
         atm.DATABASE = Path(self.temp_dir.name) / "test-atm.db"
@@ -19,10 +40,7 @@ class WebAppTests(unittest.TestCase):
         self.client = web_app.app.test_client()
 
     def tearDown(self):
-        if self.database_url is not None:
-            os.environ["DATABASE_URL"] = self.database_url
-        if self.postgres_url is not None:
-            os.environ["POSTGRES_URL"] = self.postgres_url
+        os.environ.update(self.database_environment)
         if self.vercel is not None:
             os.environ["VERCEL"] = self.vercel
         self.temp_dir.cleanup()
@@ -37,14 +55,42 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"ATM Simulator", response.data)
 
-    def test_postgres_provider_url_is_supported(self):
-        os.environ["POSTGRES_URL"] = "postgresql://example.invalid/test"
+    def test_postgres_provider_url_aliases_are_supported(self):
+        for variable in ("POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING"):
+            with self.subTest(variable=variable):
+                os.environ[variable] = "postgresql://example.invalid/test"
+                with patch.object(atm.psycopg, "connect") as connect:
+                    connection = atm.connect_database()
+
+                connect.assert_called_once()
+                self.assertEqual(
+                    connect.call_args.kwargs["conninfo"],
+                    "postgresql://example.invalid/test",
+                )
+                self.assertTrue(connection.postgres)
+                connection.close()
+                connection.connection.close.assert_called_once()
+                os.environ.pop(variable)
+
+    def test_postgres_component_variables_are_supported(self):
+        os.environ.update(
+            {
+                "POSTGRES_HOST": "db.example.invalid",
+                "POSTGRES_USER": "atm",
+                "POSTGRES_PASSWORD": "test-secret",
+                "POSTGRES_DATABASE": "atm",
+            }
+        )
         with patch.object(atm.psycopg, "connect") as connect:
             connection = atm.connect_database()
 
-        connect.assert_called_once()
-        self.assertEqual(
-            connect.call_args.args[0], "postgresql://example.invalid/test"
+        connect.assert_called_once_with(
+            host="db.example.invalid",
+            user="atm",
+            password="test-secret",
+            dbname="atm",
+            sslmode="require",
+            row_factory=atm.dict_row,
         )
         self.assertTrue(connection.postgres)
         connection.close()

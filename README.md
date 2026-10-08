@@ -29,18 +29,21 @@ Set `ATM_SQLITE_PATH` to use a different local SQLite file.
 
 The hosted app requires a persistent PostgreSQL database; Vercel's function
 filesystem is not persistent. Create a PostgreSQL database with a provider of
-your choice and configure its connection URL as `DATABASE_URL` or
-`POSTGRES_URL` in the Vercel project settings (including for the Production
-environment). Keep the URL private. The app creates its tables and inserts the
-two demo accounts and ATM note inventory on its first API request.
+your choice and connect it to the Vercel project. The app recognizes common
+provider variables including `DATABASE_URL`, `POSTGRES_URL`,
+`POSTGRES_PRISMA_URL`, and `POSTGRES_URL_NON_POOLING`; it can also use
+`POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DATABASE`.
+Make sure the variables are available in the Production environment. Keep
+credentials private. The app creates its tables and inserts the two demo
+accounts and ATM note inventory on its first API request.
 
 1. Import this repository into Vercel. `pyproject.toml` points its Python
    runtime at the Flask app in `web_app.py`; `vercel.json` routes requests to
    that function.
-2. Add `DATABASE_URL` or `POSTGRES_URL` using the provider's PostgreSQL
-   connection string. If the provider already created `POSTGRES_URL`, no
-   additional variable is needed. Use a connection string with TLS enabled;
-   use the provider's pooled URL if its serverless guidance recommends one.
+2. Connect the database integration to this Vercel project and Production
+   environment, or add one of its PostgreSQL URL variables. Use a connection
+   string with TLS enabled; use the provider's pooled URL if its serverless
+   guidance recommends one.
 3. Deploy and open the site. Sign in with either demo account above.
 
 Vercel functions can scale out, so sessions are stored as hashed tokens in
