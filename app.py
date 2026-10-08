@@ -38,6 +38,23 @@ POSTGRES_URL_ENV_VARS = (
 )
 
 
+def database_error_code(error):
+    return getattr(error, "sqlstate", None) or type(error).__name__
+
+
+def database_error_response(handler, error):
+    code = database_error_code(error)
+    print(f"[ATM] Database error category: {code}")
+    return handler.send_json(
+        {
+            "error": f"Database error ({code}). Check the PostgreSQL connection.",
+            "code": "DATABASE_ERROR",
+            "database_error": code,
+        },
+        503,
+    )
+
+
 class ApiError(Exception):
     def __init__(self, message, status=400, code="BAD_REQUEST"):
         super().__init__(message)
@@ -423,10 +440,7 @@ class ATMRequestHandler(BaseHTTPRequestHandler):
                 {"error": error.message, "code": error.code}, error.status
             )
         except DATABASE_ERRORS as error:
-            print(f"[ATM] Database error: {error}")
-            return self.send_json(
-                {"error": "Database error. Please try again."}, 500
-            )
+            return database_error_response(self, error)
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -482,10 +496,7 @@ class ATMRequestHandler(BaseHTTPRequestHandler):
                 {"error": error.message, "code": error.code}, error.status
             )
         except DATABASE_ERRORS as error:
-            print(f"[ATM] Database error: {error}")
-            return self.send_json(
-                {"error": "Database error. Please try again."}, 500
-            )
+            return database_error_response(self, error)
 
     def send_file(self, filename, content_type):
         path = STATIC_ROOT / filename

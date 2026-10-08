@@ -5,7 +5,12 @@ import threading
 
 from flask import Flask, Response, jsonify, request
 
-from app import ATMRequestHandler, DATABASE_ERRORS, initialize_database
+from app import (
+    ATMRequestHandler,
+    DATABASE_ERRORS,
+    database_error_code,
+    initialize_database,
+)
 
 
 app = Flask(__name__)
@@ -59,9 +64,22 @@ def dispatch(path):
         except RuntimeError as error:
             app.logger.exception("ATM deployment configuration error")
             return jsonify({"error": str(error)}), 503
-        except DATABASE_ERRORS:
-            app.logger.exception("ATM database initialization failed")
-            return jsonify({"error": "Database error. Please try again."}), 500
+        except DATABASE_ERRORS as error:
+            code = database_error_code(error)
+            app.logger.exception("ATM database initialization failed (%s)", code)
+            return (
+                jsonify(
+                    {
+                        "error": (
+                            f"Database error ({code}). Check the PostgreSQL "
+                            "connection."
+                        ),
+                        "code": "DATABASE_ERROR",
+                        "database_error": code,
+                    }
+                ),
+                503,
+            )
 
     headers = Message()
     for name, value in request.headers.items():

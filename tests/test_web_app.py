@@ -55,6 +55,20 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"ATM Simulator", response.data)
 
+    def test_database_failure_returns_safe_diagnostic(self):
+        with patch.object(
+            web_app,
+            "initialize_database",
+            side_effect=atm.psycopg.OperationalError("private connection details"),
+        ):
+            response = self.client.post(
+                "/api/login", json={"account_no": "1001", "pin": "1234"}
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json["database_error"], "OperationalError")
+        self.assertNotIn(b"private connection details", response.data)
+
     def test_postgres_provider_url_aliases_are_supported(self):
         for variable in ("POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING"):
             with self.subTest(variable=variable):
