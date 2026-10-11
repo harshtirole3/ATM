@@ -127,9 +127,14 @@ def connect_database():
     if postgres_settings:
         if psycopg is None:
             raise RuntimeError("Install psycopg to connect to the configured database.")
-        return DatabaseConnection(
-            psycopg.connect(**postgres_settings, row_factory=dict_row), postgres=True
-        )
+        connection = psycopg.connect(**postgres_settings, row_factory=dict_row)
+        try:
+            connection.execute("CREATE SCHEMA IF NOT EXISTS atm_simulator")
+            connection.execute("SET search_path TO atm_simulator")
+        except psycopg.Error:
+            connection.close()
+            raise
+        return DatabaseConnection(connection, postgres=True)
     if os.environ.get("VERCEL"):
         raise RuntimeError(
             "Connect PostgreSQL to this Vercel project. Set a database URL "

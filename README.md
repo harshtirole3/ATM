@@ -38,8 +38,10 @@ provider variables including `DATABASE_URL`, `POSTGRES_URL`,
 `POSTGRES_PRISMA_URL`, and `POSTGRES_URL_NON_POOLING`; it can also use
 `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DATABASE`.
 Make sure the variables are available in the Production environment. Keep
-credentials private. The app creates its tables and inserts the two demo
-accounts and ATM note inventory on its first API request.
+credentials private. The app creates its tables in a dedicated
+`atm_simulator` PostgreSQL schema and inserts the two demo accounts and ATM
+note inventory on its first API request. This keeps its tables separate from
+tables already present in the database's default schema.
 
 1. Import this repository into Vercel. `pyproject.toml` points its Python
    runtime at the Flask app in `web_app.py`; `vercel.json` routes requests to

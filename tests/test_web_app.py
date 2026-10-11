@@ -82,6 +82,14 @@ class WebAppTests(unittest.TestCase):
                     "postgresql://example.invalid/test",
                 )
                 self.assertTrue(connection.postgres)
+                connection.connection.execute.assert_has_calls(
+                    [
+                        unittest.mock.call(
+                            "CREATE SCHEMA IF NOT EXISTS atm_simulator"
+                        ),
+                        unittest.mock.call("SET search_path TO atm_simulator"),
+                    ]
+                )
                 connection.close()
                 connection.connection.close.assert_called_once()
                 os.environ.pop(variable)
