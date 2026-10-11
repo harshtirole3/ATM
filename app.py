@@ -76,7 +76,10 @@ class DatabaseConnection:
     def executemany(self, query, parameters):
         if self.postgres:
             query = query.replace("?", "%s")
-        return self.connection.executemany(query, parameters)
+            with self.connection.cursor() as cursor:
+                cursor.executemany(query, parameters)
+        else:
+            self.connection.executemany(query, parameters)
 
     def __enter__(self):
         return self

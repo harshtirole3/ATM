@@ -6,7 +6,7 @@ It does not connect to a bank or move real money.
 
 ## Run locally
 
-Python 3.10+ is recommended.
+Python 3.12+ is required.
 
 ```sh
 python -m venv .venv
@@ -24,6 +24,10 @@ accounts on first start:
 | 1002 | 5678 |
 
 Set `ATM_SQLITE_PATH` to use a different local SQLite file.
+
+The Tkinter desktop app in `main.py` also needs the optional analytics and
+fraud-detection dependencies. Install them with
+`python -m pip install -e ".[desktop]"` before running the desktop app.
 
 ## Deploy to Vercel
 

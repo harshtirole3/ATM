@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import app as atm
 import web_app
@@ -85,6 +85,19 @@ class WebAppTests(unittest.TestCase):
                 connection.close()
                 connection.connection.close.assert_called_once()
                 os.environ.pop(variable)
+
+    def test_postgres_executemany_uses_cursor(self):
+        raw_connection = MagicMock()
+        connection = atm.DatabaseConnection(raw_connection, postgres=True)
+        connection.executemany(
+            "INSERT INTO users (account_no) VALUES (?)", [(1001,), (1002,)]
+        )
+
+        raw_connection.cursor.assert_called_once()
+        raw_connection.executemany.assert_not_called()
+        raw_connection.cursor.return_value.__enter__.return_value.executemany.assert_called_once_with(
+            "INSERT INTO users (account_no) VALUES (%s)", [(1001,), (1002,)]
+        )
 
     def test_postgres_component_variables_are_supported(self):
         os.environ.update(

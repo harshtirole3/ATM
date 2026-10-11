@@ -40,9 +40,3 @@ def calculate_denominations(amount):
         return None
 
     return result
-
-
-    if amount != 0:
-        return None
-
-    return result
